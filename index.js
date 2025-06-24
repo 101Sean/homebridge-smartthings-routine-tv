@@ -13,13 +13,13 @@ module.exports = api => {
     // dynamic=true 로 external accessory 모드
     api.registerPlatform(
         plugin,
-        'StRoutinePlatform',
-        StRoutinePlatform,
+        'StRoutineTV',
+        StRoutineTV,
         true
     )
 }
 
-class StRoutinePlatform {
+class StRoutineTV {
     constructor(log, config, api) {
         this.log       = log
         this.token     = config.token
