@@ -41,7 +41,13 @@ class StRoutineTV {
         );
         tvAcc.category = this.api.hap.Categories.TELEVISION;
 
-        // 2) TV 서비스 세팅
+        // 2)AccessoryInformation 패치 → TV 아이콘 강제
+        const info = tvAcc.getService(Service.AccessoryInformation);
+        info
+            .setCharacteristic(Characteristic.Manufacturer, 'Custom')
+            .setCharacteristic(Characteristic.Model,        'Television');
+
+        // 3) TV 서비스 세팅
         const tv = new Service.Television(this.name);
         tv
             .setCharacteristic(Characteristic.ConfiguredName, this.name)
@@ -50,16 +56,16 @@ class StRoutineTV {
                 Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE
             );
 
-        // 3) ActiveIdentifier (필수)
+        // 4) ActiveIdentifier (필수)
         tv.getCharacteristic(Characteristic.ActiveIdentifier)
             .setProps({ minValue:1, maxValue:1, validValues:[1] })
             .onGet(() => 1);
 
-        // 4) RemoteKey 더미 (필수)
+        // 5) RemoteKey 더미 (필수)
         tv.getCharacteristic(Characteristic.RemoteKey)
             .onSet((_, cb) => cb());
 
-        // 5) InputSource (필수)
+        // 6) InputSource (필수)
         const input = new Service.InputSource(
             `${this.name} Input`,
             uuid.generate(`${this.routineId}-in`)
@@ -75,10 +81,10 @@ class StRoutineTV {
             );
         tv.addLinkedService(input);
 
-        // 6) Primary Service 지정
+        // 7) Primary Service 지정
         tv.setPrimaryService();
 
-        // 7) Active 토글 구현 (원터치)
+        // 8) Active 토글 구현 (원터치)
         tv.getCharacteristic(Characteristic.Active)
             .onGet(() => Characteristic.Active.INACTIVE)
             .onSet(async (value) => {
@@ -106,7 +112,7 @@ class StRoutineTV {
 
         tvAcc.addService(tv);
 
-        // 8) External Accessory 로 게시
+        // 9) External Accessory 로 게시
         this.api.publishExternalAccessories(
             plugin,
             [ tvAcc ]
