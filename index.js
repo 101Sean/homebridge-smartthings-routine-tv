@@ -1,17 +1,19 @@
 // index.js
 const axios = require('axios')
 
-let Service, Characteristic, uuid
+let Service, Characteristic, Bridge, Accessory, uuid
 
 module.exports = (api) => {
     Service        = api.hap.Service
     Characteristic = api.hap.Characteristic
+    Bridge         = api.hap.Bridge
+    Accessory      = api.platformAccessory
     uuid           = api.hap.uuid
 
-    // dynamic=true → Child Bridge 없이 단일 External Accessory
+    // dynamic=true → Child Bridge 모드
     api.registerPlatform(
-        'homebridge-smartthings-routine-tv', // package.json.name
-        'StRoutineTV',                       // platform identifier
+        'homebridge-smartthings-routine-tv',  // package.json.name
+        'StRoutineTV',                        // platform identifier
         StRoutineTV,
         true
     )
@@ -29,21 +31,26 @@ class StRoutineTV {
             throw new Error('token and routineId are required')
         }
 
-        this.api.on('didFinishLaunching', () => this.publishTv())
+        this.api.on('didFinishLaunching', () => this.publishBridge())
     }
 
-    publishTv() {
-        // 1) 액세서리 생성
-        const acc = new this.api.platformAccessory(
-            this.name,
-            uuid.generate(this.routineId)
-        )
-        acc.category = this.api.hap.Categories.TELEVISION
+    publishBridge() {
+        // 1) Child Bridge 생성
+        const bridgeUUID  = uuid.generate(this.name)
+        const childBridge = new Bridge(this.name, bridgeUUID)
+        childBridge
+            .getService(Service.AccessoryInformation)
+            .setCharacteristic(Characteristic.Manufacturer, 'SmartThings')
+            .setCharacteristic(Characteristic.Model,        'TVRoutineBridge')
 
-        // 2) TV 서비스 구성
+        // 2) TV 액세서리(Bridged Accessory) 생성
+        const tvAcc = new Accessory(this.name, uuid.generate(this.routineId))
+        tvAcc.category = this.api.hap.Categories.TELEVISION
+
+        // 3) Television 서비스 구성
         const tv = new Service.Television(this.name)
         tv
-            .setCharacteristic(Characteristic.ConfiguredName,    this.name)
+            .setCharacteristic(Characteristic.ConfiguredName, this.name)
             .setCharacteristic(
                 Characteristic.SleepDiscoveryMode,
                 Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE
@@ -54,27 +61,30 @@ class StRoutineTV {
             .setProps({ minValue:1, maxValue:1, validValues:[1] })
             .onGet(() => 1)
 
-        // (권장) RemoteKey 더미
+        // 권장: RemoteKey 더미 핸들러
         tv.getCharacteristic(Characteristic.RemoteKey)
             .onSet((_, cb) => cb())
 
-        // 더미 InputSource 하나 연결
+        // 더미 InputSource 서비스
         const inp = new Service.InputSource(
             `${this.name} Input`,
-            uuid.generate(`${this.routineId}-in`)
+            uuid.generate(`${this.routineId}-input`)
         )
         inp
             .setCharacteristic(Characteristic.Identifier,             1)
             .setCharacteristic(Characteristic.ConfiguredName,         this.name)
             .setCharacteristic(Characteristic.IsConfigured,           Characteristic.IsConfigured.CONFIGURED)
             .setCharacteristic(Characteristic.InputSourceType,        Characteristic.InputSourceType.HDMI)
-            .setCharacteristic(Characteristic.CurrentVisibilityState, Characteristic.CurrentVisibilityState.SHOWN)
+            .setCharacteristic(
+                Characteristic.CurrentVisibilityState,
+                Characteristic.CurrentVisibilityState.SHOWN
+            )
         tv.addLinkedService(inp)
 
-        // Primary Service 로 지정
+        // Primary Service 지정
         tv.setPrimaryService()
 
-        // 3) 전원(Active) 토글만
+        // 전원 토글만 (Active)
         tv.getCharacteristic(Characteristic.Active)
             .onGet(() => Characteristic.Active.INACTIVE)
             .onSet(async (v, cb) => {
@@ -82,9 +92,10 @@ class StRoutineTV {
                     try {
                         await axios.post(
                             `https://api.smartthings.com/v1/scenes/${this.routineId}/execute`,
-                            {}, { headers: { Authorization: `Bearer ${this.token}` } }
+                            {},
+                            { headers: { Authorization: `Bearer ${this.token}` } }
                         )
-                        this.log.info(`Executed TV routine: ${this.name}`)
+                        this.log.info(`Executed TV Routine: ${this.name}`)
                     } catch (err) {
                         this.log.error('Error executing TV routine', err)
                         return cb(new Error('SERVICE_COMMUNICATION_FAILURE'))
@@ -98,15 +109,18 @@ class StRoutineTV {
                 cb()
             })
 
-        acc.addService(tv)
+        tvAcc.addService(tv)
 
-        // 4) External Accessory 로 게시
+        // 4) Child Bridge에 TV 액세서리 연결
+        childBridge.addBridgedAccessory(tvAcc)
+
+        // 5) External Accessory로 HomeKit에 게시
         this.api.publishExternalAccessories(
             'homebridge-smartthings-routine-tv',  // package.json.name
-            [ acc ]
+            [ childBridge ]
         )
-        this.log.info('Published TV Routine accessory')
+        this.log.info(`Published child bridge "${this.name}" with TV accessory`)
     }
 
-    configureAccessory() {} // no-op
+    configureAccessory() {}  // no-op
 }
