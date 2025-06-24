@@ -8,12 +8,11 @@ module.exports = (api) => {
     Characteristic = api.hap.Characteristic
     uuid           = api.hap.uuid
 
-    // dynamic=true → 외부 액세서리 모드
+    // Static 플랫폼으로 등록 (dynamic 플래그 없음)
     api.registerPlatform(
         'homebridge-smartthings-routine-tv',  // package.json.name
         'StRoutineTV',                        // platform identifier
-        StRoutineTV,
-        true
+        StRoutineTV
     )
 }
 
@@ -29,35 +28,41 @@ class StRoutineTV {
             throw new Error('token and routineId are required')
         }
 
-        this.api.on('didFinishLaunching', () => this.publishTv())
+        this.api.on('didFinishLaunching', () => this.initAccessory())
     }
 
-    publishTv() {
-        // 1) 루트 레벨 PlatformAccessory
+    initAccessory() {
+        // 1) PlatformAccessory 생성
         const accessory = new this.api.platformAccessory(
             this.name,
             uuid.generate(this.routineId)
         )
         accessory.category = this.api.hap.Categories.TELEVISION
 
-        // 2) Television 서비스 최소 요건
+        // 2) Television 서비스 구성
         const tv = new Service.Television(this.name)
         tv
-            .setCharacteristic(Characteristic.ConfiguredName,    this.name)
+            .setCharacteristic(Characteristic.ConfiguredName, this.name)
             .setCharacteristic(
                 Characteristic.SleepDiscoveryMode,
                 Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE
             )
+
         // ActiveIdentifier (필수)
         tv.getCharacteristic(Characteristic.ActiveIdentifier)
-            .setProps({ minValue:1, maxValue:1, validValues:[1] })
+            .setProps({ minValue: 1, maxValue: 1, validValues: [1] })
             .onGet(() => 1)
-        // 더미 InputSource (필수)
-        const inp = new Service.InputSource(
+
+        // RemoteKey 더미 핸들러
+        tv.getCharacteristic(Characteristic.RemoteKey)
+            .onSet((_, cb) => cb())
+
+        // 더미 InputSource 연결
+        const input = new Service.InputSource(
             `${this.name} Input`,
-            uuid.generate(`${this.routineId}-input`)
+            uuid.generate(`${this.routineId}-in`)
         )
-        inp
+        input
             .setCharacteristic(Characteristic.Identifier,             1)
             .setCharacteristic(Characteristic.ConfiguredName,         this.name)
             .setCharacteristic(Characteristic.IsConfigured,           Characteristic.IsConfigured.CONFIGURED)
@@ -66,10 +71,12 @@ class StRoutineTV {
                 Characteristic.CurrentVisibilityState,
                 Characteristic.CurrentVisibilityState.SHOWN
             )
-        tv.addLinkedService(inp)
-        tv.setPrimaryService() // “이게 주요 서비스입니다” 표시
+        tv.addLinkedService(input)
 
-        // 3) 전원 토글만 구현
+        // Primary 서비스 지정
+        tv.setPrimaryService()
+
+        // Active(전원) 토글 구현
         tv.getCharacteristic(Characteristic.Active)
             .onGet(() => Characteristic.Active.INACTIVE)
             .onSet(async (v, cb) => {
@@ -77,7 +84,8 @@ class StRoutineTV {
                     try {
                         await axios.post(
                             `https://api.smartthings.com/v1/scenes/${this.routineId}/execute`,
-                            {}, { headers:{ Authorization:`Bearer ${this.token}` } }
+                            {},
+                            { headers: { Authorization: `Bearer ${this.token}` } }
                         )
                         this.log.info(`Executed TV routine: ${this.name}`)
                     } catch (err) {
@@ -95,13 +103,14 @@ class StRoutineTV {
 
         accessory.addService(tv)
 
-        // 4) publishExternalAccessories → 루트 레벨 TV 액세서리로 노출
-        this.api.publishExternalAccessories(
+        // 3) Static 플랫폼 어시스턴트로 등록
+        this.api.registerPlatformAccessories(
             'homebridge-smartthings-routine-tv',  // package.json.name
+            'StRoutineTV',                        // platform identifier
             [ accessory ]
         )
-        this.log.info('Published TV Routine as external accessory')
+        this.log.info('Registered TV Routine accessory in main bridge')
     }
 
-    configureAccessory() {} // no-op
+    configureAccessory() {}  // no-op
 }
