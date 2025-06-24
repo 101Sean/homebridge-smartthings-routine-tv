@@ -8,88 +8,63 @@ module.exports = (api) => {
     Characteristic = api.hap.Characteristic
     uuid           = api.hap.uuid
 
+    // ← must match package.json.name
     api.registerPlatform(
-        'homebridge-smartthings-routine-tv',  // package.json name
-        'StRoutineTV',               // platform identifier
+        'homebridge-smartthings-routine-tv',
+        'StRoutineTV',
         StRoutineTV,
         true
     )
 }
 
 class StRoutineTV {
-    constructor(log, config, api) {
-        this.log    = log
-        this.token  = config.token   // SmartThings API 토큰
-        this.api    = api
-
-        if (!this.token) {
-            throw new Error('token is required')
-        }
-
-        this.api.on('didFinishLaunching', () => this.initAccessories())
-    }
+    // … constructor etc …
 
     async initAccessories() {
-        let scenes
-        try {
-            const res = await axios.get(
-                'https://api.smartthings.com/v1/scenes',
-                { headers: { Authorization: `Bearer ${this.token}` } }
-            )
-            scenes = res.data.items
-        } catch (err) {
-            this.log.error('Failed to fetch SmartThings scenes', err)
-            return
-        }
-
-        scenes = scenes.filter(s => String(s.sceneIcon) === '204')
+        // … fetch scenes, filter to sceneIcon === '204' …
 
         const accessories = scenes.map(scene => {
-            // 빈 이름이면 ID 사용
-            const displayName = (scene.sceneName||'').trim() || `Routine ${scene.sceneId}`
-            const acc = new this.api.platformAccessory(
-                displayName,
-                uuid.generate(scene.sceneId)
-            )
+            const name = (scene.sceneName || '').trim() || scene.sceneId
+            const svc  = new Service.Television(name)
+            const acc  = new this.api.platformAccessory(name, uuid.generate(scene.sceneId))
+
             acc.category = this.api.hap.Categories.TELEVISION
 
-            const tvSvc = new Service.Television(displayName)
-            tvSvc
-                .setCharacteristic(Characteristic.ConfiguredName, displayName)
+            svc
+                .setCharacteristic(Characteristic.ConfiguredName, name)
                 .setCharacteristic(
                     Characteristic.SleepDiscoveryMode,
                     Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE
                 )
-
-            tvSvc.getCharacteristic(Characteristic.Active)
+            svc.getCharacteristic(Characteristic.Active)
                 .onGet(() => Characteristic.Active.INACTIVE)
-                .onSet(async (value, callback) => {
-                    if (value === Characteristic.Active.ACTIVE) {
+                .onSet(async (v, cb) => {
+                    if (v === Characteristic.Active.ACTIVE) {
                         try {
                             await axios.post(
                                 `https://api.smartthings.com/v1/scenes/${scene.sceneId}/execute`,
                                 {},
                                 { headers: { Authorization: `Bearer ${this.token}` } }
                             )
-                            this.log.info(`Executed scene: ${displayName}`)
+                            this.log.info(`Executed scene: ${name}`)
                         } catch (e) {
-                            this.log.error(`Error executing ${displayName}`, e)
-                            // HomeKit에 에러 표시
-                            return callback(new Error('SERVICE_COMMUNICATION_FAILURE'))
+                            this.log.error(e)
+                            return cb(new Error('SERVICE_COMMUNICATION_FAILURE'))
                         } finally {
-                            tvSvc.updateCharacteristic(
+                            svc.updateCharacteristic(
                                 Characteristic.Active,
                                 Characteristic.Active.INACTIVE
                             )
                         }
                     }
-                    callback()
+                    cb()
                 })
 
-            acc.addService(tvSvc)
+            acc.addService(svc)
             return acc
         })
 
+        // ← publish with the same pluginName
         this.api.publishExternalAccessories(
             'homebridge-smartthings-routine-tv',
             accessories
@@ -97,5 +72,5 @@ class StRoutineTV {
         this.log.info(`Published ${accessories.length} TV routines`)
     }
 
-    configureAccessory() {}  // no-op
+    configureAccessory() {} // no-op
 }
