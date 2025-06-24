@@ -46,7 +46,7 @@ class StRoutineTV {
 
         const accessories = scenes.map(scene => {
             // 빈 이름이면 ID 사용
-            const displayName = (scene.name||'').trim() || `Routine ${scene.sceneId}`
+            const displayName = (scene.sceneName||'').trim() || `Routine ${scene.sceneId}`
             const acc = new this.api.platformAccessory(
                 displayName,
                 uuid.generate(scene.sceneId)
