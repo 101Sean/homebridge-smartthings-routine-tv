@@ -8,20 +8,20 @@ module.exports = (api) => {
     Characteristic = api.hap.Characteristic
     uuid           = api.hap.uuid
 
-    // dynamic=true 로 External Accessory 모드
     api.registerPlatform(
         'homebridge-smartthings-routine-tv',  // package.json.name
-        'StRoutineTV',                        // 플랫폼 식별자
+        'StRoutineTV',                        // platform identifier
         StRoutineTV,
-        true                                  // ← dynamic=true 반드시!
+        true                                  // dynamic=true
     )
 }
 
 class StRoutineTV {
     constructor(log, config, api) {
         this.log       = log
-        this.token     = config.token       // SmartThings API 토큰
-        this.routineId = config.routineId   // TV 전용 씬 ID
+        this.token     = config.token
+        this.routineId = config.routineId
+        this.name      = config.name || 'TV Routine'  // ← 여기서 받아서 저장
         this.api       = api
 
         if (!this.token || !this.routineId) {
@@ -32,27 +32,30 @@ class StRoutineTV {
     }
 
     publishTvAccessory() {
-        const name = this.api.config.name || 'TV Routine'
-        // 1) accessory 인스턴스 생성
-        const acc = new this.api.platformAccessory(name, uuid.generate(this.routineId))
+        // 이제 this.name 을 사용
+        const name = this.name
+
+        const acc = new this.api.platformAccessory(
+            name,
+            uuid.generate(this.routineId)
+        )
         acc.category = this.api.hap.Categories.TELEVISION
 
-        // 2) TV 서비스 구성
         const tvSvc = new Service.Television(name)
         tvSvc
-            .setCharacteristic(Characteristic.ConfiguredName,        name)
-            .setCharacteristic(Characteristic.SleepDiscoveryMode,     Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE)
+            .setCharacteristic(Characteristic.ConfiguredName,    name)
+            .setCharacteristic(
+                Characteristic.SleepDiscoveryMode,
+                Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE
+            )
 
-        // ActiveIdentifier (필수)
         tvSvc.getCharacteristic(Characteristic.ActiveIdentifier)
             .setProps({ minValue:1, maxValue:1, validValues:[1] })
             .onGet(() => 1)
 
-        // RemoteKey 더미
         tvSvc.getCharacteristic(Characteristic.RemoteKey)
             .onSet((_, cb) => cb())
 
-        // 더미 InputSource
         const inp = new Service.InputSource(`${name} Input`, uuid.generate(`${this.routineId}-in`))
         inp
             .setCharacteristic(Characteristic.Identifier,             1)
@@ -64,7 +67,6 @@ class StRoutineTV {
 
         tvSvc.setPrimaryService()
 
-        // 전원 토글만
         tvSvc.getCharacteristic(Characteristic.Active)
             .onGet(() => Characteristic.Active.INACTIVE)
             .onSet(async (v, cb) => {
@@ -91,7 +93,6 @@ class StRoutineTV {
 
         acc.addService(tvSvc)
 
-        // 3) External Accessory 로 HomeKit에 게시
         this.api.publishExternalAccessories(
             'homebridge-smartthings-routine-tv',  // package.json.name
             [ acc ]
