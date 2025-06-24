@@ -1,7 +1,7 @@
 // index.js
-const axios  = require('axios');
-const pkg    = require('./package.json');
-const plugin = pkg.name;  // package.json.name 과 100% 일치
+const axios = require('axios');
+const pkg   = require('./package.json');
+const plugin = pkg.name;  // "homebridge-smartthings-routine-tv"
 
 let Service, Characteristic, uuid;
 
@@ -10,13 +10,8 @@ module.exports = (api) => {
     Characteristic = api.hap.Characteristic;
     uuid           = api.hap.uuid;
 
-    // dynamic=true → External Accessory 모드
-    api.registerPlatform(
-        plugin,        // package.json.name
-        'StRoutineTV', // platform identifier
-        StRoutineTV,
-        true           // dynamic
-    );
+    // Accessory 플러그인 등록
+    api.registerAccessory(plugin, 'StRoutineTV', StRoutineTV);
 };
 
 class StRoutineTV {
@@ -24,30 +19,24 @@ class StRoutineTV {
         this.log       = log;
         this.name      = config.name;      // 홈 앱에 표시될 이름
         this.token     = config.token;     // SmartThings API 토큰
-        this.routineId = config.routineId; // sceneIcon=204 씬 ID
+        this.routineId = config.routineId; // TV 전원 씬 ID
         this.api       = api;
 
         if (!this.name || !this.token || !this.routineId) {
-            throw new Error('config.json 에 name, token, routineId 모두 필요');
+            throw new Error('config.json에 name, token, routineId 모두 필요합니다');
         }
-        this.api.on('didFinishLaunching', () => this.publishAccessory());
-    }
 
-    publishAccessory() {
-        // 1) 액세서리 생성 (TV 카테고리)
-        const tvAcc = new this.api.platformAccessory(
-            this.name,
-            uuid.generate(this.routineId)
-        );
-        tvAcc.category = this.api.hap.Categories.TELEVISION;
+        // 단일 Accessory 인스턴스 생성
+        const uuidStr = uuid.generate(this.routineId);
+        const acc     = new api.platformAccessory(this.name, uuidStr);
+        acc.category  = api.hap.Categories.TELEVISION;
 
-        // 2)AccessoryInformation 패치 → TV 아이콘 강제
-        const info = tvAcc.getService(Service.AccessoryInformation);
-        info
+        // AccessoryInformation 패치 → TV 아이콘 강제
+        acc.getService(Service.AccessoryInformation)
             .setCharacteristic(Characteristic.Manufacturer, 'Custom')
             .setCharacteristic(Characteristic.Model,        'Television');
 
-        // 3) TV 서비스 세팅
+        // Television 서비스 구성 (필수 7요소)
         const tv = new Service.Television(this.name);
         tv
             .setCharacteristic(Characteristic.ConfiguredName, this.name)
@@ -56,20 +45,14 @@ class StRoutineTV {
                 Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE
             );
 
-        // 4) ActiveIdentifier (필수)
         tv.getCharacteristic(Characteristic.ActiveIdentifier)
             .setProps({ minValue:1, maxValue:1, validValues:[1] })
             .onGet(() => 1);
 
-        // 5) RemoteKey 더미 (필수)
         tv.getCharacteristic(Characteristic.RemoteKey)
             .onSet((_, cb) => cb());
 
-        // 6) InputSource (필수)
-        const input = new Service.InputSource(
-            `${this.name} Input`,
-            uuid.generate(`${this.routineId}-in`)
-        );
+        const input = new Service.InputSource(`${this.name} Input`, uuid.generate(this.routineId + '-in'));
         input
             .setCharacteristic(Characteristic.Identifier,             1)
             .setCharacteristic(Characteristic.ConfiguredName,         this.name)
@@ -80,11 +63,8 @@ class StRoutineTV {
                 Characteristic.CurrentVisibilityState.SHOWN
             );
         tv.addLinkedService(input);
-
-        // 7) Primary Service 지정
         tv.setPrimaryService();
 
-        // 8) Active 토글 구현 (원터치)
         tv.getCharacteristic(Characteristic.Active)
             .onGet(() => Characteristic.Active.INACTIVE)
             .onSet(async (value) => {
@@ -93,32 +73,22 @@ class StRoutineTV {
                         await axios.post(
                             `https://api.smartthings.com/v1/scenes/${this.routineId}/execute`,
                             {},
-                            { headers:{ Authorization:`Bearer ${this.token}` } }
+                            { headers: { Authorization: `Bearer ${this.token}` } }
                         );
                         this.log.info(`Executed TV routine: ${this.name}`);
                     } catch (err) {
                         this.log.error('Error executing TV routine', err);
-                        throw new this.api.hap.HapStatusError(
-                            this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
-                        );
+                        throw new this.api.hap.HapStatusError(this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
                     } finally {
-                        tv.updateCharacteristic(
-                            Characteristic.Active,
-                            Characteristic.Active.INACTIVE
-                        );
+                        tv.updateCharacteristic(Characteristic.Active, Characteristic.Active.INACTIVE);
                     }
                 }
             });
 
-        tvAcc.addService(tv);
-
-        // 9) External Accessory 로 게시
-        this.api.publishExternalAccessories(
-            plugin,
-            [ tvAcc ]
-        );
-        this.log.info('✅ Published TV Routine as external accessory');
+        acc.addService(tv);
+        this.api.registerPlatformAccessories(plugin, 'StRoutineTV', [acc]);
+        this.log.info('✅ Registered TV Routine accessory');
     }
 
-    configureAccessory() {} // no-op
+    configureAccessory() {}  // no-op
 }
