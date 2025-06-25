@@ -1,7 +1,7 @@
 // index.js
 const axios = require('axios');
 const pkg   = require('./package.json');
-const PLUGIN_NAME = pkg.name; // "homebridge-smartthings-routine-tv"
+const PLUGIN_NAME = pkg.name; // 반드시 package.json의 name과 일치
 
 let Service, Characteristic, uuid;
 
@@ -10,7 +10,7 @@ module.exports = (api) => {
     Characteristic = api.hap.Characteristic;
     uuid           = api.hap.uuid;
 
-    // Accessory 방식으로만 등록
+    // 오직 Accessory 로만 등록
     api.registerAccessory(PLUGIN_NAME, 'StRoutineTV', StRoutineTV);
 };
 
@@ -25,13 +25,13 @@ class StRoutineTV {
             throw new Error('config.json에 name, token, sceneId 모두 필요합니다');
         }
 
-        // 1) AccessoryInformation: TV 아이콘 강제
+        // 액세서리 정보
         this.infoService = new Service.AccessoryInformation()
             .setCharacteristic(Characteristic.Manufacturer, 'Custom')
             .setCharacteristic(Characteristic.Model,        'Television')
             .setCharacteristic(Characteristic.Name,         this.name);
 
-        // 2) Television 서비스 (필수 7요소)
+        // TV 서비스
         this.tvService = new Service.Television(this.name)
             .setCharacteristic(Characteristic.ConfiguredName, this.name)
             .setCharacteristic(
@@ -39,7 +39,7 @@ class StRoutineTV {
                 Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE
             );
 
-        // ActiveIdentifier (필수)
+        // 필수 ActiveIdentifier
         this.tvService.getCharacteristic(Characteristic.ActiveIdentifier)
             .setProps({ minValue:1, maxValue:1, validValues:[1] })
             .onGet(() => 1);
@@ -65,7 +65,7 @@ class StRoutineTV {
         this.tvService.addLinkedService(input);
         this.tvService.setPrimaryService();
 
-        // 3) Active 토글 (원터치 복원)
+        // Active 토글 (원터치 복원)
         this.tvService.getCharacteristic(Characteristic.Active)
             .onGet(() => Characteristic.Active.INACTIVE)
             .onSet(async value => {
@@ -92,7 +92,7 @@ class StRoutineTV {
             });
     }
 
-    // Homebridge가 서비스 배열을 이 메서드로부터 읽어갑니다
+    // Homebridge가 서비스 목록을 여기서 읽어갑니다
     getServices() {
         return [ this.infoService, this.tvService ];
     }
