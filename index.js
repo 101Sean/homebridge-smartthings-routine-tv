@@ -1,7 +1,7 @@
 // index.js
 const axios = require('axios');
 const pkg   = require('./package.json');
-const PLUGIN_NAME = pkg.name; // 반드시 package.json의 name과 일치
+const PLUGIN_NAME = pkg.name;
 
 let Service, Characteristic, uuid;
 
@@ -10,7 +10,6 @@ module.exports = (api) => {
     Characteristic = api.hap.Characteristic;
     uuid           = api.hap.uuid;
 
-    // 오직 Accessory 로만 등록
     api.registerAccessory(PLUGIN_NAME, 'StRoutineTV', StRoutineTV);
 };
 
@@ -25,13 +24,11 @@ class StRoutineTV {
             throw new Error('config.json에 name, token, sceneId 모두 필요합니다');
         }
 
-        // 액세서리 정보
         this.infoService = new Service.AccessoryInformation()
             .setCharacteristic(Characteristic.Manufacturer, 'Custom')
             .setCharacteristic(Characteristic.Model,        'Television')
             .setCharacteristic(Characteristic.Name,         this.name);
 
-        // TV 서비스
         this.tvService = new Service.Television(this.name)
             .setCharacteristic(Characteristic.ConfiguredName, this.name)
             .setCharacteristic(
@@ -39,16 +36,13 @@ class StRoutineTV {
                 Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE
             );
 
-        // 필수 ActiveIdentifier
         this.tvService.getCharacteristic(Characteristic.ActiveIdentifier)
             .setProps({ minValue:1, maxValue:1, validValues:[1] })
             .onGet(() => 1);
 
-        // RemoteKey 더미
         this.tvService.getCharacteristic(Characteristic.RemoteKey)
-            .onSet((_, cb) => cb());
+            .onSet((_,cb) => cb());
 
-        // InputSource 더미
         const input = new Service.InputSource(
             `${this.name} Input`,
             uuid.generate(this.sceneId + '-in')
@@ -58,14 +52,10 @@ class StRoutineTV {
             .setCharacteristic(Characteristic.ConfiguredName,         this.name)
             .setCharacteristic(Characteristic.IsConfigured,           Characteristic.IsConfigured.CONFIGURED)
             .setCharacteristic(Characteristic.InputSourceType,        Characteristic.InputSourceType.HDMI)
-            .setCharacteristic(
-                Characteristic.CurrentVisibilityState,
-                Characteristic.CurrentVisibilityState.SHOWN
-            );
+            .setCharacteristic(Characteristic.CurrentVisibilityState, Characteristic.CurrentVisibilityState.SHOWN);
         this.tvService.addLinkedService(input);
         this.tvService.setPrimaryService();
 
-        // Active 토글 (원터치 복원)
         this.tvService.getCharacteristic(Characteristic.Active)
             .onGet(() => Characteristic.Active.INACTIVE)
             .onSet(async value => {
@@ -74,7 +64,7 @@ class StRoutineTV {
                         await axios.post(
                             `https://api.smartthings.com/v1/scenes/${this.sceneId}/execute`,
                             {},
-                            { headers: { Authorization:`Bearer ${this.token}` } }
+                            { headers:{ Authorization:`Bearer ${this.token}` } }
                         );
                         this.log.info(`Executed TV routine: ${this.name}`);
                     } catch (e) {
@@ -92,7 +82,6 @@ class StRoutineTV {
             });
     }
 
-    // Homebridge가 서비스 목록을 여기서 읽어갑니다
     getServices() {
         return [ this.infoService, this.tvService ];
     }
