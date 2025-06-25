@@ -2,24 +2,9 @@
   "name": "homebridge-smartthings-routine-tv",
   "version": "1.0.6",
   "main": "index.js",
-  "keywords": [ "homebridge", "tv", "smartthings", "routine" ],
+  "keywords": ["homebridge","television","smartthings","routine"],
   "engines": { "homebridge": ">=1.0.0" },
-  "dependencies": { "axios": "^1.x" },
-
-  "homebridge": {
-    "accessories": [
-      {
-        "accessory": "homebridge-smartthings-routine-tv",
-        "schema": {
-          "type": "object",
-          "required": ["name","token","sceneId"],
-          "properties": {
-            "name":    { "type":"string", "default":"TV Routine" },
-            "token":   { "type":"string", "title":"SmartThings API Token" },
-            "sceneId": { "type":"string", "title":"SmartThings Scene ID" }
-          }
-        }
-      }
-    ]
+  "dependencies": {
+    "axios": "^1.0.0"
   }
 }

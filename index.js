@@ -1,7 +1,7 @@
 // index.js
 const axios = require('axios');
 const pkg   = require('./package.json');
-const PLUGIN_NAME = pkg.name;
+const PLUGIN_NAME = pkg.name;   // must match package.json “name”
 
 let Service, Characteristic, uuid;
 
@@ -10,11 +10,12 @@ module.exports = (api) => {
     Characteristic = api.hap.Characteristic;
     uuid           = api.hap.uuid;
 
+    // register as an Accessory, not a Platform
     api.registerAccessory(PLUGIN_NAME, 'StRoutineTV', StRoutineTV);
 };
 
 class StRoutineTV {
-    constructor(log, config) {
+    constructor(log, config, api) {
         this.log     = log;
         this.name    = config.name;
         this.token   = config.token;
@@ -24,11 +25,13 @@ class StRoutineTV {
             throw new Error('config.json에 name, token, sceneId 모두 필요합니다');
         }
 
+        // Information service (optional but recommended)
         this.infoService = new Service.AccessoryInformation()
             .setCharacteristic(Characteristic.Manufacturer, 'Custom')
-            .setCharacteristic(Characteristic.Model,        'Television')
+            .setCharacteristic(Characteristic.Model,        'SmartThings TV Routine')
             .setCharacteristic(Characteristic.Name,         this.name);
 
+        // Television service
         this.tvService = new Service.Television(this.name)
             .setCharacteristic(Characteristic.ConfiguredName, this.name)
             .setCharacteristic(
@@ -36,13 +39,15 @@ class StRoutineTV {
                 Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE
             );
 
+        // Required for a working “TV” accessory
         this.tvService.getCharacteristic(Characteristic.ActiveIdentifier)
             .setProps({ minValue:1, maxValue:1, validValues:[1] })
             .onGet(() => 1);
 
         this.tvService.getCharacteristic(Characteristic.RemoteKey)
-            .onSet((_,cb) => cb());
+            .onSet((_, cb) => cb());
 
+        // Dummy input so HomeKit doesn’t hide the power button
         const input = new Service.InputSource(
             `${this.name} Input`,
             uuid.generate(this.sceneId + '-in')
@@ -56,9 +61,10 @@ class StRoutineTV {
         this.tvService.addLinkedService(input);
         this.tvService.setPrimaryService();
 
+        // Power toggle
         this.tvService.getCharacteristic(Characteristic.Active)
             .onGet(() => Characteristic.Active.INACTIVE)
-            .onSet(async value => {
+            .onSet(async (value, callback) => {
                 if (value === Characteristic.Active.ACTIVE) {
                     try {
                         await axios.post(
@@ -66,19 +72,19 @@ class StRoutineTV {
                             {},
                             { headers:{ Authorization:`Bearer ${this.token}` } }
                         );
-                        this.log.info(`Executed TV routine: ${this.name}`);
+                        this.log.info(`Executed TV scene: ${this.name}`);
                     } catch (e) {
                         this.log.error('Error executing TV routine', e);
-                        throw new this.api.hap.HapStatusError(
-                            this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
-                        );
+                        return callback(new Error('SERVICE_COMMUNICATION_FAILURE'));
                     } finally {
+                        // reset to “off”
                         this.tvService.updateCharacteristic(
                             Characteristic.Active,
                             Characteristic.Active.INACTIVE
                         );
                     }
                 }
+                callback();
             });
     }
 
