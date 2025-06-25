@@ -1,99 +1,101 @@
 // index.js
 const axios = require('axios');
-const pkg   = require('./package.json');
-const PLUGIN_NAME = pkg.name;  // "homebridge-smartthings-routine-tv"
 
 let Service, Characteristic, uuid;
 
-module.exports = api => {
+module.exports = (api) => {
     Service        = api.hap.Service;
     Characteristic = api.hap.Characteristic;
     uuid           = api.hap.uuid;
 
-    // Accessory 플러그인으로만 등록
-    api.registerAccessory(PLUGIN_NAME, 'StRoutineTV', StRoutineTV);
+    // dynamic=true → External Accessory 모드의 플랫폼 플러그인
+    api.registerPlatform(
+        'homebridge-smartthings-routine-tv', // package.json name
+        'StRoutineTV',                       // platform identifier
+        StRoutineTV,
+        true
+    );
 };
 
 class StRoutineTV {
-    constructor(log, config) {
-        this.log       = log;
-        this.name      = config.name;
-        this.token     = config.token;
-        this.routineId = config.routineId;
+    constructor(log, config, api) {
+        this.log   = log;
+        this.token = config.token;
+        this.api   = api;
 
-        if (!this.name || !this.token || !this.routineId) {
-            throw new Error('config.json에 name, token, routineId 모두 필요합니다');
+        if (!this.token) {
+            throw new Error('`token` is required in config.json');
         }
 
-        // ── AccessoryInformation (TV 아이콘 강제 지정) ──
-        this.infoService = new Service.AccessoryInformation()
-            .setCharacteristic(Characteristic.Manufacturer, 'Custom')
-            .setCharacteristic(Characteristic.Model,        'Television')
-            .setCharacteristic(Characteristic.Name,         this.name);
-
-        // ── Television 서비스 구성 (필수 7요소) ──
-        this.tvService = new Service.Television(this.name)
-            .setCharacteristic(Characteristic.ConfiguredName, this.name)
-            .setCharacteristic(
-                Characteristic.SleepDiscoveryMode,
-                Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE
-            );
-
-        // ActiveIdentifier
-        this.tvService.getCharacteristic(Characteristic.ActiveIdentifier)
-            .setProps({ minValue:1, maxValue:1, validValues:[1] })
-            .onGet(() => 1);
-
-        // RemoteKey dummy
-        this.tvService.getCharacteristic(Characteristic.RemoteKey)
-            .onSet((_, cb) => cb());
-
-        // Dummy InputSource
-        const input = new Service.InputSource(
-            `${this.name} Input`,
-            uuid.generate(this.routineId + '-in')
-        );
-        input
-            .setCharacteristic(Characteristic.Identifier,             1)
-            .setCharacteristic(Characteristic.ConfiguredName,         this.name)
-            .setCharacteristic(Characteristic.IsConfigured,           Characteristic.IsConfigured.CONFIGURED)
-            .setCharacteristic(Characteristic.InputSourceType,        Characteristic.InputSourceType.HDMI)
-            .setCharacteristic(
-                Characteristic.CurrentVisibilityState,
-                Characteristic.CurrentVisibilityState.SHOWN
-            );
-        this.tvService.addLinkedService(input);
-        this.tvService.setPrimaryService();
-
-        // Active 토글 (원터치 복원)
-        this.tvService.getCharacteristic(Characteristic.Active)
-            .onGet(() => Characteristic.Active.INACTIVE)
-            .onSet(async value => {
-                if (value === Characteristic.Active.ACTIVE) {
-                    try {
-                        await axios.post(
-                            `https://api.smartthings.com/v1/scenes/${this.routineId}/execute`,
-                            {},
-                            { headers: { Authorization:`Bearer ${this.token}` } }
-                        );
-                        this.log.info(`Executed TV routine: ${this.name}`);
-                    } catch (e) {
-                        this.log.error('Error executing TV routine', e);
-                        throw new this.api.hap.HapStatusError(
-                            this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE
-                        );
-                    } finally {
-                        this.tvService.updateCharacteristic(
-                            Characteristic.Active,
-                            Characteristic.Active.INACTIVE
-                        );
-                    }
-                }
-            });
+        this.api.on('didFinishLaunching', () => this.initAccessories());
     }
 
-    // Homebridge가 서비스 리스트를 얻어갈 때 호출
-    getServices() {
-        return [ this.infoService, this.tvService ];
+    async initAccessories() {
+        let scenes;
+        try {
+            const res = await axios.get(
+                'https://api.smartthings.com/v1/scenes',
+                { headers: { Authorization: `Bearer ${this.token}` } }
+            );
+            scenes = res.data.items;
+        } catch (err) {
+            this.log.error('Failed to fetch SmartThings scenes', err);
+            return;
+        }
+
+        // TV 전원 씬(icon 204)만 필터
+        scenes = scenes.filter(scene => String(scene.sceneIcon) === '204');
+
+        const accessories = scenes.map(scene => {
+            const name = (scene.sceneName || '').trim() || `Routine ${scene.sceneId}`;
+            const acc  = new this.api.platformAccessory(name, uuid.generate(scene.sceneId));
+            acc.category = this.api.hap.Categories.TELEVISION;
+
+            const tv = new Service.Television(name);
+            tv
+                .setCharacteristic(Characteristic.ConfiguredName, name)
+                .setCharacteristic(
+                    Characteristic.SleepDiscoveryMode,
+                    Characteristic.SleepDiscoveryMode.ALWAYS_DISCOVERABLE
+                );
+
+            // 원터치 전원(Active) 토글
+            tv.getCharacteristic(Characteristic.Active)
+                .onGet(() => Characteristic.Active.INACTIVE)
+                .onSet(async (v, cb) => {
+                    if (v === Characteristic.Active.ACTIVE) {
+                        try {
+                            await axios.post(
+                                `https://api.smartthings.com/v1/scenes/${scene.sceneId}/execute`,
+                                {},
+                                { headers: { Authorization: `Bearer ${this.token}` } }
+                            );
+                            this.log.info(`Executed scene: ${name}`);
+                        } catch (e) {
+                            this.log.error(`Error executing ${name}`, e);
+                            return cb(new Error('SERVICE_COMMUNICATION_FAILURE'));
+                        } finally {
+                            tv.updateCharacteristic(
+                                Characteristic.Active,
+                                Characteristic.Active.INACTIVE
+                            );
+                        }
+                    }
+                    cb();
+                });
+
+            acc.addService(tv);
+            return acc;
+        });
+
+        this.api.publishExternalAccessories(
+            'homebridge-smartthings-routine-tv',
+            accessories
+        );
+        this.log.info(`Published ${accessories.length} TV routines`);
+    }
+
+    configureAccessory() {
+        // no-op
     }
 }
