@@ -1,8 +1,17 @@
 {
   "name": "homebridge-smartthings-routine-tv",
-  "version": "1.0.5",
+  "version": "1.0.0",
   "main": "index.js",
-  "engines": { "homebridge": ">=1.0.0" },
+  "keywords": [
+    "homebridge",
+    "homebridge-plugin",
+    "smartthings",
+    "tv",
+    "routine"
+  ],
+  "engines": {
+    "homebridge": ">=1.0.0"
+  },
   "dependencies": {
     "axios": "^1.5.0"
   }
