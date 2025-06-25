@@ -1,7 +1,7 @@
 // index.js
 const axios = require('axios');
 const pkg   = require('./package.json');
-const pluginName = pkg.name;           // "homebridge-smartthings-routine-tv"
+const PLUGIN_NAME = pkg.name;  // "homebridge-smartthings-routine-tv"
 
 let Service, Characteristic, uuid;
 
@@ -10,8 +10,8 @@ module.exports = api => {
     Characteristic = api.hap.Characteristic;
     uuid           = api.hap.uuid;
 
-    // Accessory 방식으로 등록
-    api.registerAccessory(pluginName, 'StRoutineTV', StRoutineTV);
+    // Accessory 플러그인으로만 등록
+    api.registerAccessory(PLUGIN_NAME, 'StRoutineTV', StRoutineTV);
 };
 
 class StRoutineTV {
@@ -25,13 +25,13 @@ class StRoutineTV {
             throw new Error('config.json에 name, token, routineId 모두 필요합니다');
         }
 
-        // 1) AccessoryInformation (아이콘 강제 지정)
+        // ── AccessoryInformation (TV 아이콘 강제 지정) ──
         this.infoService = new Service.AccessoryInformation()
             .setCharacteristic(Characteristic.Manufacturer, 'Custom')
             .setCharacteristic(Characteristic.Model,        'Television')
             .setCharacteristic(Characteristic.Name,         this.name);
 
-        // 2) Television 서비스 구성 (필수 7요소)
+        // ── Television 서비스 구성 (필수 7요소) ──
         this.tvService = new Service.Television(this.name)
             .setCharacteristic(Characteristic.ConfiguredName, this.name)
             .setCharacteristic(
@@ -44,11 +44,11 @@ class StRoutineTV {
             .setProps({ minValue:1, maxValue:1, validValues:[1] })
             .onGet(() => 1);
 
-        // RemoteKey 더미
+        // RemoteKey dummy
         this.tvService.getCharacteristic(Characteristic.RemoteKey)
             .onSet((_, cb) => cb());
 
-        // InputSource 더미
+        // Dummy InputSource
         const input = new Service.InputSource(
             `${this.name} Input`,
             uuid.generate(this.routineId + '-in')
@@ -74,7 +74,7 @@ class StRoutineTV {
                         await axios.post(
                             `https://api.smartthings.com/v1/scenes/${this.routineId}/execute`,
                             {},
-                            { headers: { Authorization: `Bearer ${this.token}` } }
+                            { headers: { Authorization:`Bearer ${this.token}` } }
                         );
                         this.log.info(`Executed TV routine: ${this.name}`);
                     } catch (e) {
@@ -92,7 +92,7 @@ class StRoutineTV {
             });
     }
 
-    // Homebridge가 이 메서드를 호출해서 HAP 액세서리로 노출합니다
+    // Homebridge가 서비스 리스트를 얻어갈 때 호출
     getServices() {
         return [ this.infoService, this.tvService ];
     }
